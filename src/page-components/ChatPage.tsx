@@ -39,7 +39,7 @@ import { Confirmation, ConfirmationTitle, ConfirmationRequest, ConfirmationAccep
 import { Sandbox, SandboxHeader, SandboxContent, SandboxTabs, SandboxTabsBar, SandboxTabsList, SandboxTabsTrigger, SandboxTabContent } from '@/components/ai-elements/sandbox';
 import { InlineCitation, InlineCitationText, InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody, InlineCitationSource } from '@/components/ai-elements/inline-citation';
 import VoiceMode from '@/components/VoiceMode';
-import { InlineReactPreview } from '@/components/InlineReactPreview';
+import { InlineReactPreview, stripReactCodeBlocks } from '@/components/InlineReactPreview';
 import {
   StockCard,
   LiveStockChart,
@@ -459,11 +459,12 @@ export function ChatPage() {
               case 'text':
                 if (!part.text) return null;
                 if (message.role === 'assistant') {
-                  // Use AI Elements MessageResponse (Streamdown) for assistant markdown
-                  // Also render detected React code blocks as live previews
+                  // Strip React code blocks from the markdown so they don't render as code.
+                  // The InlineReactPreview shows them as live rendered previews instead.
+                  const strippedText = !msgIsStreaming ? stripReactCodeBlocks(part.text) : part.text;
                   return (
                     <React.Fragment key={pIdx}>
-                      <MessageResponse>{part.text}</MessageResponse>
+                      {strippedText.trim() && <MessageResponse>{strippedText}</MessageResponse>}
                       {!msgIsStreaming && <InlineReactPreview text={part.text} isDark={isDark} />}
                     </React.Fragment>
                   );
