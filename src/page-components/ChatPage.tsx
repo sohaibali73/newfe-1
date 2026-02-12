@@ -94,6 +94,20 @@ function AttachmentsDisplay() {
   );
 }
 
+// Smart submit button that enables when there's text OR attachments
+function SmartSubmitButton({ status, onStop, input, isStreaming }: { status: any; onStop: () => void; input: string; isStreaming: boolean }) {
+  const attachments = usePromptInputAttachments();
+  const hasContent = input.trim().length > 0 || attachments.files.length > 0;
+
+  return (
+    <PromptInputSubmit
+      status={status}
+      onStop={onStop}
+      disabled={!hasContent && !isStreaming}
+    />
+  );
+}
+
 // Simple attachment button that opens file dialog
 function AttachmentButton({ disabled }: { disabled?: boolean }) {
   const attachments = usePromptInputAttachments();
@@ -421,13 +435,21 @@ export function ChatPage() {
             <Sources>
               <SourcesTrigger count={sourceParts.length} />
               <SourcesContent>
-                {sourceParts.map((sourcePart: any, sIdx: number) => (
-                  <Source
-                    key={`source-${sIdx}`}
-                    href={sourcePart.url}
-                    title={sourcePart.title || new URL(sourcePart.url).hostname}
-                  />
-                ))}
+                {sourceParts.map((sourcePart: any, sIdx: number) => {
+                  let sourceTitle = sourcePart.title;
+                  if (!sourceTitle) {
+                    try { sourceTitle = new URL(sourcePart.url).hostname; } catch { sourceTitle = 'Source'; }
+                  }
+                  return (
+                    <Source
+                      key={`source-${sIdx}`}
+                      href={sourcePart.url}
+                      title={sourceTitle}
+                      description={sourcePart.description || sourcePart.snippet}
+                      index={sIdx + 1}
+                    />
+                  );
+                })}
               </SourcesContent>
             </Sources>
           )}
@@ -456,7 +478,7 @@ export function ChatPage() {
           {/* Render parts per v5 docs */}
           {parts.map((part: any, pIdx: number) => {
             switch (part.type) {
-              case 'text':
+              case 'text': {
                 if (!part.text) return null;
                 if (message.role === 'assistant') {
                   // Strip React code blocks from the markdown so they don't render as code.
@@ -469,11 +491,15 @@ export function ChatPage() {
                     </React.Fragment>
                   );
                 }
+                // User message: strip "Attached files:" references since files render as visual attachments
+                const displayText = part.text.replace(/\n*Attached files:.*$/s, '').trim();
+                if (!displayText) return null;
                 return (
                   <p key={pIdx} className="whitespace-pre-wrap break-words text-sm leading-relaxed" style={{ color: colors.text, fontWeight: 400 }}>
-                    {part.text}
+                    {displayText}
                   </p>
                 );
+              }
 
               case 'reasoning':
                 return (
@@ -497,13 +523,26 @@ export function ChatPage() {
                   </div>
                 ) : null;
 
-              case 'file':
+              case 'file': {
                 if (part.mediaType?.startsWith('image/') && part.base64) {
                   // Use AI Elements Image for base64-encoded generated images
-                  return <AIImage key={pIdx} base64={part.base64} uint8Array={undefined as any} mediaType={part.mediaType} alt="Generated image" className="max-w-full rounded-lg mt-2" />;
+                  return <AIImage key={pIdx} base64={part.base64} uint8Array={undefined as any} mediaType={part.mediaType} alt={part.filename || 'Generated image'} className="max-w-full rounded-lg mt-2" />;
                 }
-                if (part.mediaType?.startsWith('image/')) {
-                  return <img key={pIdx} src={part.url} alt="Generated" className="max-w-full rounded-lg mt-2" />;
+                if (part.mediaType?.startsWith('image/') && (part.url || part.data)) {
+                  // Render image attachments (blob:, data:, or remote URLs)
+                  const imgSrc = part.url || (part.data ? `data:${part.mediaType};base64,${part.data}` : '');
+                  return (
+                    <div key={pIdx} className="mt-2">
+                      <img
+                        src={imgSrc}
+                        alt={part.filename || 'Attached image'}
+                        className="max-w-xs max-h-64 rounded-lg object-cover border border-border"
+                      />
+                      {part.filename && (
+                        <span className="block mt-1 text-xs text-muted-foreground">{part.filename}</span>
+                      )}
+                    </div>
+                  );
                 }
                 // Non-image files: display with AI Elements Attachments
                 if (part.url || part.filename) {
@@ -517,6 +556,7 @@ export function ChatPage() {
                   );
                 }
                 return null;
+              }
 
               // ===== GENERATIVE UI: Tool parts render as rich components =====
               // AI SDK v6: part.type === 'tool-${toolName}', part.state, part.output
@@ -1232,27 +1272,32 @@ export function ChatPage() {
                     } catch { setPageError('Failed to create conversation'); return; }
                   }
 
-                  // Upload files first if any
-                  let messageText = text;
+                  // Build message parts array for AI SDK v6 multimodal sendMessage
+                  const messageParts: any[] = [];
+
+                  // Add text part
+                  if (text.trim()) {
+                    messageParts.push({ type: 'text', text });
+                  }
+
+                  // Upload files to backend AND build file parts for the message
                   if (files.length > 0) {
                     const token = getAuthToken();
-                    const uploaded: string[] = [];
+                    const uploadedNames: string[] = [];
 
                     for (const file of files) {
                       const fileName = file.filename || 'upload';
                       try {
-                        // Convert file URL (blob: or data:) to actual File object
+                        // Convert file URL (blob: or data:) to actual File object for upload
                         let actualFile: File;
                         if (file.url?.startsWith('blob:')) {
                           const blob = await fetch(file.url).then(r => r.blob());
                           actualFile = new File([blob], fileName, { type: file.mediaType || 'application/octet-stream' });
                         } else if (file.url?.startsWith('data:')) {
-                          // PromptInput converts blob URLs to data URLs — handle data: URIs
                           const resp = await fetch(file.url);
                           const blob = await resp.blob();
                           actualFile = new File([blob], fileName, { type: file.mediaType || blob.type || 'application/octet-stream' });
                         } else if (file.url) {
-                          // Regular URL — try fetching it
                           const resp = await fetch(file.url);
                           const blob = await resp.blob();
                           actualFile = new File([blob], fileName, { type: file.mediaType || blob.type || 'application/octet-stream' });
@@ -1261,19 +1306,29 @@ export function ChatPage() {
                           continue;
                         }
 
-                        const toastId = toast.loading(`📤 Uploading ${fileName}...`, { duration: 10000 });
+                        // Add file as a FileUIPart so it renders in the message UI
+                        // Use the data URL from PromptInput (already converted) for inline display
+                        messageParts.push({
+                          type: 'file',
+                          mediaType: file.mediaType || actualFile.type || 'application/octet-stream',
+                          filename: fileName,
+                          url: file.url,
+                        });
+
+                        // Upload to backend for server-side processing
+                        const toastId = toast.loading(`Uploading ${fileName}...`, { duration: 10000 });
                         const formData = new FormData();
                         formData.append('file', actualFile);
 
                         try {
-                          const controller = new AbortController();
-                          const timeoutId = setTimeout(() => controller.abort(), 30000);
+                          const abortCtrl = new AbortController();
+                          const timeoutId = setTimeout(() => abortCtrl.abort(), 30000);
 
                           const resp = await fetch(`/api/upload?conversationId=${convId}`, {
                             method: 'POST',
                             headers: { 'Authorization': token ? `Bearer ${token}` : '' },
                             body: formData,
-                            signal: controller.signal
+                            signal: abortCtrl.signal
                           });
 
                           clearTimeout(timeoutId);
@@ -1284,35 +1339,43 @@ export function ChatPage() {
                           }
 
                           const respData = await resp.json();
-                          uploaded.push(fileName);
+                          uploadedNames.push(fileName);
 
-                          // Show special toast if .pptx was auto-registered as template
                           if (respData.is_template && respData.template_id) {
-                            toast.success(`✅ ${fileName} registered as template (${respData.template_layouts} layouts)`, { id: toastId, duration: 6000 });
-                            uploaded.push(`Template ID: ${respData.template_id}`);
+                            toast.success(`${fileName} registered as template (${respData.template_layouts} layouts)`, { id: toastId, duration: 6000 });
                           } else {
-                            toast.success(`✅ Uploaded ${fileName}`, { id: toastId });
+                            toast.success(`Uploaded ${fileName}`, { id: toastId });
                           }
                         } catch (err) {
                           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
                           if (errorMsg.includes('AbortError') || errorMsg.includes('timeout')) {
-                            toast.error(`⏱️ Upload timeout for ${fileName}`, { id: toastId });
+                            toast.error(`Upload timeout for ${fileName}`, { id: toastId });
                           } else {
-                            toast.error(`❌ Failed to upload ${fileName}: ${errorMsg}`, { id: toastId });
+                            toast.error(`Failed to upload ${fileName}: ${errorMsg}`, { id: toastId });
                           }
                           console.error(`[v0] File upload error for ${fileName}:`, err);
                         }
                       } catch { }
                     }
 
-                    // Add file references to message text
-                    if (uploaded.length > 0) {
-                      const fileList = uploaded.map(f => f.startsWith('🎨') ? f : `[file: ${f}]`).join('\n');
-                      messageText = text.trim() ? `${text}\n\n${fileList}` : fileList;
+                    // Append uploaded file references to text for backend context
+                    if (uploadedNames.length > 0) {
+                      const fileRef = uploadedNames.map(f => `[file: ${f}]`).join(', ');
+                      // If we already have a text part, augment it; otherwise add one
+                      const textPartIdx = messageParts.findIndex((p: any) => p.type === 'text');
+                      if (textPartIdx >= 0) {
+                        messageParts[textPartIdx].text += `\n\nAttached files: ${fileRef}`;
+                      } else {
+                        messageParts.unshift({ type: 'text', text: `Attached files: ${fileRef}` });
+                      }
                     }
                   }
 
-                  sendMessage({ text: messageText }, { body: { conversationId: convId } });
+                  // Send as multimodal message with parts (AI SDK v6 pattern)
+                  sendMessage(
+                    { role: 'user', parts: messageParts },
+                    { body: { conversationId: convId } }
+                  );
                 }}
               >
                 {/* AI Elements: File attachment previews */}
@@ -1371,10 +1434,11 @@ export function ChatPage() {
                       disabled={isStreaming}
                     />
                   </PromptInputTools>
-                  <PromptInputSubmit
+                  <SmartSubmitButton
                     status={status}
                     onStop={() => stop()}
-                    disabled={!input.trim() && !isStreaming}
+                    input={input}
+                    isStreaming={isStreaming}
                   />
                 </PromptInputFooter>
               </PromptInput>
