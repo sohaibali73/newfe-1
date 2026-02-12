@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Plus, MessageSquare, Paperclip, Trash2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, Pencil, X, Wifi, WifiOff, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, Volume2, VolumeX } from 'lucide-react';
+import { Plus, MessageSquare, ArrowUpFromLine, Trash2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, Pencil, X, Wifi, WifiOff, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, Volume2, VolumeX } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
@@ -39,6 +39,7 @@ import { Confirmation, ConfirmationTitle, ConfirmationRequest, ConfirmationAccep
 import { Sandbox, SandboxHeader, SandboxContent, SandboxTabs, SandboxTabsBar, SandboxTabsList, SandboxTabsTrigger, SandboxTabContent } from '@/components/ai-elements/sandbox';
 import { InlineCitation, InlineCitationText, InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody, InlineCitationSource } from '@/components/ai-elements/inline-citation';
 import VoiceMode from '@/components/VoiceMode';
+import { InlineReactPreview } from '@/components/InlineReactPreview';
 import {
   StockCard,
   LiveStockChart,
@@ -114,7 +115,7 @@ function AttachmentButton({ disabled }: { disabled?: boolean }) {
         transition: 'all 0.2s ease',
       }}
     >
-      <Paperclip className="size-4" />
+      <ArrowUpFromLine className="size-4" />
     </PromptInputButton>
   );
 }
@@ -459,7 +460,13 @@ export function ChatPage() {
                 if (!part.text) return null;
                 if (message.role === 'assistant') {
                   // Use AI Elements MessageResponse (Streamdown) for assistant markdown
-                  return <MessageResponse key={pIdx}>{part.text}</MessageResponse>;
+                  // Also render detected React code blocks as live previews
+                  return (
+                    <React.Fragment key={pIdx}>
+                      <MessageResponse>{part.text}</MessageResponse>
+                      {!msgIsStreaming && <InlineReactPreview text={part.text} isDark={isDark} />}
+                    </React.Fragment>
+                  );
                 }
                 return (
                   <p key={pIdx} className="whitespace-pre-wrap break-words text-sm leading-relaxed" style={{ color: colors.text, fontWeight: 400 }}>
@@ -1299,7 +1306,7 @@ export function ChatPage() {
 
                     // Add file references to message text
                     if (uploaded.length > 0) {
-                      const fileList = uploaded.map(f => f.startsWith('🎨') ? f : `📎 ${f}`).join('\n');
+                      const fileList = uploaded.map(f => f.startsWith('🎨') ? f : `[file: ${f}]`).join('\n');
                       messageText = text.trim() ? `${text}\n\n${fileList}` : fileList;
                     }
                   }
