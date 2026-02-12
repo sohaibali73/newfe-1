@@ -435,13 +435,21 @@ export function ChatPage() {
             <Sources>
               <SourcesTrigger count={sourceParts.length} />
               <SourcesContent>
-                {sourceParts.map((sourcePart: any, sIdx: number) => (
-                  <Source
-                    key={`source-${sIdx}`}
-                    href={sourcePart.url}
-                    title={sourcePart.title || new URL(sourcePart.url).hostname}
-                  />
-                ))}
+                {sourceParts.map((sourcePart: any, sIdx: number) => {
+                  let sourceTitle = sourcePart.title;
+                  if (!sourceTitle) {
+                    try { sourceTitle = new URL(sourcePart.url).hostname; } catch { sourceTitle = 'Source'; }
+                  }
+                  return (
+                    <Source
+                      key={`source-${sIdx}`}
+                      href={sourcePart.url}
+                      title={sourceTitle}
+                      description={sourcePart.description || sourcePart.snippet}
+                      index={sIdx + 1}
+                    />
+                  );
+                })}
               </SourcesContent>
             </Sources>
           )}
